@@ -1,0 +1,3 @@
+[submodule "deps/QTTFinDiff"]
+	path = deps/QTTFinDiff
+	url = git@github.com:stlamoureux1/QTTFinDiff.git
