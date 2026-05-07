@@ -20,7 +20,7 @@ struct ForwardEuler <: TimeStepping end
 
 # Solvers for the IBVP 
 # u(t, x) : [0, ∞) × [a, b] → \mathbb{R}
-# u_t + u_xx = f(x), a ≤ x ≤ b
+# u_t - u_xx = f(x), a ≤ x ≤ b
 # u(t, a) = 0, u(t, b) = 0
 # u(0, x) = 0
 # where f is given by a sum-of-sines in $x$ with constant Fourier coefficients
@@ -30,7 +30,7 @@ struct ForwardEuler <: TimeStepping end
 #
 # Specify $f$ as an array mapping the $i$-th position to the $i$-th Fourier coefficient
 
-struct ProblemSpec
+Base.@kwdef struct ProblemSpec
     a::Float64 # lower bound of spatial domain
     b::Float64 # upper bound of spatial domain
     nBit::Int # "bits of resolution" -- spatial grid has 2^nBit + 2 nodes
@@ -61,8 +61,10 @@ function getNodes(problem::ProblemSpec)
     return getNodes(problem.a, problem.b, problem.nBit, problem.t)
 end
 
-function trueSoln(a::Float64, b::Float64, nBit::Int, t::Float64, fCoeff::Vector{Float64})
+function trueSoln(a::Float64, b::Float64, nBit::Int, t::Float64, fCoeff::Vector{Float64})::Matrix{Float64}
+    # Sample true solution at space / time grid specified by the problem
     # n-th term in sine series solution
+    # TODO: (Maybe) Use inverse sine transform instead if we need more complicated source fns
     term(n, t_i, x_j) = (fCoeff[n] / (n * pi)^2) * (1 - exp(-(n * pi)^2 * t_i)) * sin((n * pi * x_j) / (b - a))
     u(t_i, x_j) = sum([term(n, t_i, x_j) for n in fCoeff])
     ts, Nt, xs, Nx = getNodes(a, b, nBit, t)
@@ -106,7 +108,7 @@ function approxSoln(a::Float64, b::Float64, nBit::Int, t::Float64, fCoeff::Vecto
     return u_est
 end
 
-function approxSoln(a, b, nBit, t, fCoeff, solver::QTTSolver, ::ForwardEuler)
+function approxSoln(a::Float64, b::Float64, nBit::Int, t::Float64, fCoeff::Vector{Float64}, solver::QTTSolver, ::ForwardEuler)::Matrix{Float64}
     ts, Nt, xs, Nx = getNodes(a, b, nBit, t)
     dt = step(ts)
     dx = step(xs)
@@ -128,13 +130,17 @@ function approxSoln(a, b, nBit, t, fCoeff, solver::QTTSolver, ::ForwardEuler)
         u_prev = @view u_est[2:end-1, t_i-1]
         u_curr = @view u_est[2:end-1, t_i]
         u_prev_mps = MPS(u_prev, sites; maxdim=solver.solnRank)
-        u_curr_mps = u_prev_mps + (noprime(L * u_prev_mps) + fs_mps) * dt
+        u_curr_mps = sum([u_prev_mps,
+                sum([noprime(L * u_prev_mps),
+                        fs_mps];
+                    cutoff=1e-12, maxdim=solver.solnRank) * dt];
+            cutoff=1e-12, maxdim=solver.solnRank)
         u_curr .= reshape(array(contract(u_curr_mps)), Nx)
     end
     return u_est
 end
 
-function approxSoln(a, b, nBit, t, fCoeff, ::FourierSolver, ::ForwardEuler)
+function approxSoln(a::Float64, b::Float64, nBit::Int, t::Float64, fCoeff::Vector{Float64}, ::FourierSolver, ::ForwardEuler)::Matrix{Float64}
     ts, Nt, xs, Nx = getNodes(a, b, nBit, t)
     dt = step(ts)
 
@@ -154,14 +160,14 @@ function approxSoln(a, b, nBit, t, fCoeff, ::FourierSolver, ::ForwardEuler)
 
     for t_i in 1:Nt
         u_curr = @view u_est[2:end-1, t_i]
-        FFTW.r2r!(u_curr, FFTW.RODFT01)
+        FFTW.r2r!(u_curr, FFTW.RODFT00)
         u_curr ./= 2
     end
 
     return u_est
 end
 
-function approxSoln(problem::ProblemSpec, solver::SolverType, stepper::TimeStepping)
+function approxSoln(problem::ProblemSpec, solver::SolverType, stepper::TimeStepping)::Matrix{Float64}
     return approxSoln(problem.a, problem.b, problem.nBit, problem.t, problem.fCoeff, solver, stepper)
 end
 
