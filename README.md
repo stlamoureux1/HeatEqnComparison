@@ -42,10 +42,15 @@ The file `src/Problems.jl` specifies `problem2` as
 
 $$
 \begin{aligned}
+
 u(t, x) &: [0, 1] \times [0, 1] \to \mathbb{R}\\[1em]
+
 \partial_t u - \partial_{x}^{2}u &= \sin(\pi x) \\[1em]
+
 u(0, x) &= 0 \\[1em]
+
 u(t, 0) &= u(t, 1) = 0
+
 \end{aligned}
 $$
 
