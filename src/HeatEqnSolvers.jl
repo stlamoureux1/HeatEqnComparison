@@ -171,3 +171,45 @@ function approxSoln(problem::ProblemSpec, solver::SolverType, stepper::TimeStepp
     return approxSoln(problem.a, problem.b, problem.nBit, problem.t, problem.fCoeff, solver, stepper)
 end
 
+
+# Experimental
+# This is a distinct example problem set up for testing and comparing the ITensors `tdvp` method
+# for time-stepping. The built-in doesn't readily support inhomogeneous terms so this implements 
+# an approximate solution for the homogeneous IBVP
+#
+# u_t - u_xx = 0
+# u(0,x) = sin(pi * x)
+# u(t,a) = u(t,b) = 0
+
+function homogeneous(a::Float64, b::Float64, nBit::Int, t::Float64)
+    ts, Nt, xs, Nx = getNodes(a, b, nBit, t)
+    dt = step(ts)
+    dx = step(xs)
+    xs_int = @view xs[2:end-1]
+
+    sites = siteinds("QTT", nBit)
+
+    L = (1 / dx)^2 * -laplacian1d(sites)
+
+    u0_ = sin.(pi * xs_int)
+
+    u_est = zeros(Nx + 2, Nt)
+    u_est[2:end-1, 1] .= u0_
+
+    current_time = dt
+
+    for t_i in 2:Nt
+        u_prev = @view u_est[2:end-1, t_i-1]
+        u_curr = @view u_est[2:end-1, t_i]
+        u_prev_mps = MPS(u_prev, sites)
+        u_curr_mps = tdvp(L, dt, u_prev_mps; time_step=dt, updater_kwargs=(; tol=1e-4, maxiter=2))
+        current_time += dt
+        u_curr .= reshape(array(contract(u_curr_mps)), Nx)
+    end
+    return u_est
+end
+
+function homogeneous(problem::ProblemSpec)::Matrix{Float64}
+    return homogeneous(problem.a, problem.b, problem.nBit, problem.t)
+end
+
